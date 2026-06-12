@@ -1,0 +1,14 @@
+spring:
+  config:
+    activate:
+      on-profile: dev
+
+app:
+  auth:
+    debug-mode: true  # 开发模式启用调试入口
+
+logging:
+  level:
+    root: INFO
+    com.dbmanager: DEBUG
+    org.springframework.jdbc: DEBUG

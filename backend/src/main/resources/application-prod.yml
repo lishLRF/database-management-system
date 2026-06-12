@@ -1,0 +1,13 @@
+spring:
+  config:
+    activate:
+      on-profile: prod
+
+app:
+  auth:
+    debug-mode: false  # 生产模式强制JWT验证
+
+logging:
+  level:
+    root: WARN
+    com.dbmanager: INFO

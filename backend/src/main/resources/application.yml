@@ -1,0 +1,48 @@
+spring:
+  application:
+    name: database-management-system
+
+  # 内置SQLite元数据库配置
+  datasource:
+    url: jdbc:sqlite:./data/metadata.db
+    driver-class-name: org.sqlite.JDBC
+    hikari:
+      maximum-pool-size: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+
+  # 安全配置
+  security:
+    user:
+      name: admin
+      password: admin
+
+server:
+  port: 8081
+  servlet:
+    context-path: /
+
+# 应用配置
+app:
+  # 认证配置
+  auth:
+    debug-mode: false
+    jwt-secret: ${JWT_SECRET:your-secret-key-change-in-production}
+    jwt-expiration: 86400000 # 24小时
+
+  # 数据加密配置
+  security:
+    aes-key: ${AES_SECRET_KEY:12345678901234567890123456789012}
+
+  # 数据源配置
+  datasource:
+    max-connections-per-user: 10
+    idle-timeout-minutes: 30
+
+# 日志配置
+logging:
+  level:
+    root: INFO
+    com.dbmanager: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
