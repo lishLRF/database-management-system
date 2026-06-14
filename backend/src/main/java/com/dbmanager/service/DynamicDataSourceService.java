@@ -52,13 +52,16 @@ public class DynamicDataSourceService {
 
     private List<Map<String, Object>> getTableColumns(DatabaseMetaData meta, String tableName) throws Exception {
         List<Map<String, Object>> columns = new ArrayList<>();
+        Set<String> pkCols = getPrimaryKeyColumns(meta, tableName);
         try (ResultSet rs = meta.getColumns(null, null, tableName, null)) {
             while (rs.next()) {
                 Map<String, Object> col = new HashMap<>();
-                col.put("name", rs.getString("COLUMN_NAME"));
+                String colName = rs.getString("COLUMN_NAME");
+                col.put("name", colName);
                 col.put("type", rs.getString("TYPE_NAME"));
                 col.put("size", rs.getInt("COLUMN_SIZE"));
                 col.put("nullable", rs.getInt("NULLABLE") == DatabaseMetaData.columnNullable);
+                col.put("pk", pkCols.contains(colName));
                 String remarks = rs.getString("REMARKS");
                 col.put("comment", remarks != null ? remarks : "");
                 columns.add(col);
@@ -67,7 +70,50 @@ public class DynamicDataSourceService {
         return columns;
     }
 
+    private Set<String> getPrimaryKeyColumns(DatabaseMetaData meta, String tableName) throws Exception {
+        Set<String> pks = new HashSet<>();
+        try (ResultSet rs = meta.getPrimaryKeys(null, null, tableName)) {
+            while (rs.next()) {
+                pks.add(rs.getString("COLUMN_NAME"));
+            }
+        }
+        return pks;
+    }
+
+    /** Get primary key column names for a table */
+    public List<String> getPrimaryKeys(Long connectionId, String tableName) throws Exception {
+        HikariDataSource ds = connectionService.getOrCreateDataSource(connectionId);
+        List<String> pks = new ArrayList<>();
+        try (Connection conn = ds.getConnection()) {
+            DatabaseMetaData meta = conn.getMetaData();
+            try (ResultSet rs = meta.getPrimaryKeys(null, null, tableName)) {
+                while (rs.next()) {
+                    pks.add(rs.getString("COLUMN_NAME"));
+                }
+            }
+        }
+        return pks;
+    }
+
     public Long getCurrentConnectionId() {
         return currentConnectionId.get();
+    }
+
+    /** Get FK constraints for a table: returns FK col → {refTable, refCol} mappings */
+    public Map<String, Map<String, String>> getForeignKeys(Long connectionId, String tableName) throws Exception {
+        Map<String, Map<String, String>> fks = new LinkedHashMap<>();
+        HikariDataSource ds = connectionService.getOrCreateDataSource(connectionId);
+        try (Connection conn = ds.getConnection()) {
+            DatabaseMetaData meta = conn.getMetaData();
+            try (ResultSet rs = meta.getImportedKeys(null, null, tableName)) {
+                while (rs.next()) {
+                    String fkCol = rs.getString("FKCOLUMN_NAME");
+                    String refTable = rs.getString("PKTABLE_NAME");
+                    String refCol = rs.getString("PKCOLUMN_NAME");
+                    fks.put(fkCol, Map.of("refTable", refTable, "refCol", refCol));
+                }
+            }
+        }
+        return fks;
     }
 }

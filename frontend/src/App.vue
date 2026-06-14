@@ -12,8 +12,9 @@
           <el-menu-item index="/">首页</el-menu-item>
           <el-menu-item index="/connections">连接管理</el-menu-item>
           <el-menu-item index="/sql">SQL工作台</el-menu-item>
+          <el-menu-item index="/markdown">Markdown解析</el-menu-item>
+          <el-menu-item index="/format-editor">半结构化编辑</el-menu-item>
           <el-menu-item index="/ai-config">AI配置</el-menu-item>
-          <el-menu-item index="/smart-fill">智能填表</el-menu-item>
         </el-menu>
         <div class="header-right">
           <ConnectionSelector />

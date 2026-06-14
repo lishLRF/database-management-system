@@ -3,7 +3,8 @@ import Home from '@/views/Home.vue'
 import ConnectionManage from '@/views/ConnectionManage.vue'
 import SqlWorkspace from '@/views/SqlWorkspace.vue'
 import AIConfig from '@/views/AIConfig.vue'
-import SmartFill from '@/views/SmartFill.vue'
+import MarkdownWorkbench from '@/views/MarkdownWorkbench.vue'
+import SemiStructuredEditor from '@/views/SemiStructuredEditor.vue'
 
 const routes = [
   {
@@ -27,9 +28,14 @@ const routes = [
     component: AIConfig
   },
   {
-    path: '/smart-fill',
-    name: 'SmartFill',
-    component: SmartFill
+    path: '/markdown',
+    name: 'MarkdownWorkbench',
+    component: MarkdownWorkbench
+  },
+  {
+    path: '/format-editor',
+    name: 'SemiStructuredEditor',
+    component: SemiStructuredEditor
   }
 ]
 

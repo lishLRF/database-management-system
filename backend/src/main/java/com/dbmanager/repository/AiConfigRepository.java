@@ -26,6 +26,7 @@ public class AiConfigRepository {
         config.setModelName(rs.getString("model_name"));
         config.setTemperature(rs.getDouble("temperature"));
         config.setMaxTokens(rs.getInt("max_tokens"));
+        config.setProjectBackground(rs.getString("project_background"));
         config.setCreatedAt(rs.getTimestamp("created_at").toLocalDateTime());
         config.setUpdatedAt(rs.getTimestamp("updated_at").toLocalDateTime());
         return config;
@@ -42,21 +43,21 @@ public class AiConfigRepository {
         if (existing != null) {
             String sql = """
                 UPDATE ai_configs SET api_provider=?, api_key_encrypted=?, api_base_url=?,
-                model_name=?, temperature=?, max_tokens=?, updated_at=CURRENT_TIMESTAMP
+                model_name=?, temperature=?, max_tokens=?, project_background=?, updated_at=CURRENT_TIMESTAMP
                 WHERE user_id=?
             """;
             jdbcTemplate.update(sql, config.getApiProvider(), config.getApiKeyEncrypted(),
                 config.getApiBaseUrl(), config.getModelName(), config.getTemperature(),
-                config.getMaxTokens(), config.getUserId());
+                config.getMaxTokens(), config.getProjectBackground(), config.getUserId());
             return findByUserId(config.getUserId());
         } else {
             String sql = """
-                INSERT INTO ai_configs (user_id, api_provider, api_key_encrypted, api_base_url, model_name, temperature, max_tokens)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO ai_configs (user_id, api_provider, api_key_encrypted, api_base_url, model_name, temperature, max_tokens, project_background)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """;
             jdbcTemplate.update(sql, config.getUserId(), config.getApiProvider(),
                 config.getApiKeyEncrypted(), config.getApiBaseUrl(), config.getModelName(),
-                config.getTemperature(), config.getMaxTokens());
+                config.getTemperature(), config.getMaxTokens(), config.getProjectBackground());
             return findByUserId(config.getUserId());
         }
     }

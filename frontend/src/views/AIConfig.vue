@@ -27,7 +27,7 @@
       </el-form-item>
 
       <el-form-item label="Max Tokens">
-        <el-input-number v-model="form.maxTokens" :min="100" :max="32768" :step="100" />
+        <el-input-number v-model="form.maxTokens" :min="100" :max="131072" :step="100" />
       </el-form-item>
 
       <el-form-item>

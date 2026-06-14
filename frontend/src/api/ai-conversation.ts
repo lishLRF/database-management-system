@@ -24,10 +24,11 @@ export const conversationAPI = {
   getMessages: (conversationId: string) =>
     request.get<{ success: boolean; messages: ChatMessage[] }>(`/ai/conversations/${conversationId}`),
 
-  chat: (conversationId: string, connectionId: number, message: string) =>
-    request.post<{ success: boolean; sql: string }>(`/ai/conversations/${conversationId}/chat`, {
+  saveMessage: (conversationId: string, connectionId: number, messageType: string, content: string) =>
+    request.post<{ success: boolean }>(`/ai/conversations/${conversationId}/save`, {
       connectionId,
-      message
+      messageType,
+      content
     }),
 
   deleteConversation: (conversationId: string) =>

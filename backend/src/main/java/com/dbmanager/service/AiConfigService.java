@@ -30,6 +30,9 @@ public class AiConfigService {
     }
 
     public AiConfig saveConfig(String userId, Map<String, Object> request) throws Exception {
+        // Preserve existing project_background
+        AiConfig existing = repository.findByUserId(userId);
+
         AiConfig config = new AiConfig();
         config.setUserId(userId);
         config.setApiProvider((String) request.get("apiProvider"));
@@ -39,10 +42,13 @@ public class AiConfigService {
             Double.valueOf(request.get("temperature").toString()) : 0.7);
         config.setMaxTokens(request.get("maxTokens") != null ?
             Integer.valueOf(request.get("maxTokens").toString()) : 2000);
+        config.setProjectBackground(existing != null ? existing.getProjectBackground() : "");
 
         String apiKey = (String) request.get("apiKey");
         if (apiKey != null && !apiKey.isEmpty()) {
             config.setApiKeyEncrypted(aesUtil.encrypt(apiKey));
+        } else if (existing != null) {
+            config.setApiKeyEncrypted(existing.getApiKeyEncrypted());
         }
 
         AiConfig saved = repository.save(config);
@@ -92,5 +98,19 @@ public class AiConfigService {
         AiConfig config = repository.findByUserId(userId);
         if (config == null) return null;
         return aesUtil.decrypt(config.getApiKeyEncrypted());
+    }
+
+    public String getProjectBackground(String userId) {
+        AiConfig config = repository.findByUserId(userId);
+        return config != null ? config.getProjectBackground() : "";
+    }
+
+    public void saveProjectBackground(String userId, String background) throws Exception {
+        AiConfig config = repository.findByUserId(userId);
+        if (config == null) {
+            throw new RuntimeException("请先配置AI参数");
+        }
+        config.setProjectBackground(background);
+        repository.save(config);
     }
 }

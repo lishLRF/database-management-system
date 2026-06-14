@@ -2,7 +2,6 @@ package com.dbmanager.controller;
 
 import com.dbmanager.entity.AiConversation;
 import com.dbmanager.repository.AiConversationRepository;
-import com.dbmanager.service.AiService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -14,11 +13,9 @@ import java.util.*;
 public class AiConversationController {
 
     private final AiConversationRepository convRepo;
-    private final AiService aiService;
 
-    public AiConversationController(AiConversationRepository convRepo, AiService aiService) {
+    public AiConversationController(AiConversationRepository convRepo) {
         this.convRepo = convRepo;
-        this.aiService = aiService;
     }
 
     @GetMapping
@@ -49,38 +46,25 @@ public class AiConversationController {
         return ResponseEntity.ok(Map.of("success", true, "messages", messages));
     }
 
-    @PostMapping("/{conversationId}/chat")
-    public ResponseEntity<?> chat(@PathVariable String conversationId,
-                                   @RequestBody Map<String, Object> request,
-                                   Authentication auth) {
+    @PostMapping("/{conversationId}/save")
+    public ResponseEntity<?> saveMessage(@PathVariable String conversationId,
+                                          @RequestBody Map<String, Object> request,
+                                          Authentication auth) {
         try {
             String userId = auth != null ? auth.getName() : "anonymous";
             Long connectionId = Long.valueOf(request.get("connectionId").toString());
-            String message = (String) request.get("message");
+            String messageType = (String) request.get("messageType");
+            String content = (String) request.get("content");
 
-            // Save user message
-            AiConversation userMsg = new AiConversation();
-            userMsg.setConversationId(conversationId);
-            userMsg.setUserId(userId);
-            userMsg.setConnectionId(connectionId);
-            userMsg.setMessageType("user");
-            userMsg.setMessageContent(message);
-            convRepo.save(userMsg);
+            AiConversation msg = new AiConversation();
+            msg.setConversationId(conversationId);
+            msg.setUserId(userId);
+            msg.setConnectionId(connectionId);
+            msg.setMessageType(messageType);
+            msg.setMessageContent(content);
+            convRepo.save(msg);
 
-            // Get conversation history for context
-            List<AiConversation> history = convRepo.findByConversationId(conversationId);
-            String sql = aiService.generateSQLWithHistory(userId, connectionId, message, history);
-
-            // Save AI response
-            AiConversation aiMsg = new AiConversation();
-            aiMsg.setConversationId(conversationId);
-            aiMsg.setUserId(userId);
-            aiMsg.setConnectionId(connectionId);
-            aiMsg.setMessageType("ai");
-            aiMsg.setMessageContent(sql);
-            convRepo.save(aiMsg);
-
-            return ResponseEntity.ok(Map.of("success", true, "sql", sql));
+            return ResponseEntity.ok(Map.of("success", true));
         } catch (Exception e) {
             return ResponseEntity.status(500).body(Map.of("success", false, "message", e.getMessage()));
         }

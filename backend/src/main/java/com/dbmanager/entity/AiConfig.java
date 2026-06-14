@@ -13,6 +13,7 @@ public class AiConfig {
     private String modelName;
     private Double temperature;
     private Integer maxTokens;
+    private String projectBackground;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

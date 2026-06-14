@@ -12,7 +12,7 @@ export interface Connection {
 
 export interface QueryResult {
   columns: string[]
-  rows: any[][]
+  rows: Record<string, any>[]
   total: number
   executionTime: number
   rowsAffected?: number

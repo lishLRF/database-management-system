@@ -1,12 +1,17 @@
 package com.dbmanager.controller;
 
+import com.dbmanager.entity.AiConversation;
+import com.dbmanager.repository.AiConversationRepository;
+import com.dbmanager.service.AgentService;
 import com.dbmanager.service.AiConfigService;
 import com.dbmanager.service.AiService;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.Map;
+import java.io.PrintWriter;
+import java.util.*;
 
 @RestController
 @RequestMapping("/api/ai")
@@ -14,19 +19,172 @@ public class AiConfigController {
 
     private final AiConfigService aiConfigService;
     private final AiService aiService;
+    private final AgentService agentService;
+    private final AiConversationRepository convRepo;
+    private final ObjectMapper om = new ObjectMapper();
 
-    public AiConfigController(AiConfigService aiConfigService, AiService aiService) {
+    public AiConfigController(AiConfigService aiConfigService, AiService aiService,
+                               AgentService agentService, AiConversationRepository convRepo) {
         this.aiConfigService = aiConfigService;
         this.aiService = aiService;
+        this.agentService = agentService;
+        this.convRepo = convRepo;
+    }
+
+    // ==================== Agent SSE endpoint ====================
+
+    @PostMapping("/agent-chat")
+    public void agentChat(@RequestBody Map<String, Object> request, Authentication auth,
+                           HttpServletResponse response) throws Exception {
+        response.setContentType("text/event-stream");
+        response.setCharacterEncoding("UTF-8");
+        response.setHeader("Cache-Control", "no-cache");
+        response.setHeader("X-Accel-Buffering", "no");
+
+        String userId = auth != null ? auth.getName() : "anonymous";
+        Long connectionId = Long.valueOf(request.get("connectionId").toString());
+        String message = (String) request.get("message");
+        String tableName = (String) request.get("tableName");
+        String conversationId = (String) request.get("conversationId");
+        String operationType = request.containsKey("operationType") ? (String) request.get("operationType") : "normal";
+        String intentType = request.containsKey("intentType") ? (String) request.get("intentType") : "general";
+
+        System.err.println("[Agent] Request opType=" + operationType + " intent=" + intentType + " table=" + tableName);
+
+        PrintWriter writer = response.getWriter();
+        Object lock = new Object();
+
+        try {
+            String sql = agentService.runAgent(userId, connectionId, message, tableName, conversationId,
+                operationType, intentType, event -> {
+                synchronized (lock) {
+                    writer.write(event);
+                    writer.flush();
+                }
+            });
+            synchronized (lock) {
+                writer.write("event: agent_result\ndata: " + om.writeValueAsString(Map.of("sql",sql)) + "\n\n");
+                writer.flush();
+            }
+        } catch (Exception e) {
+            String errMsg = e.getMessage() != null ? e.getMessage() : "Unknown";
+            // Truncate long error messages (e.g. API response bodies)
+            if (errMsg.length() > 500) errMsg = errMsg.substring(0, 500) + "...";
+            System.err.println("[Agent ERROR] " + errMsg);
+            e.printStackTrace(System.err);
+            synchronized (lock) {
+                try {
+                    writer.write("event: error\ndata: " + om.writeValueAsString(Map.of("message",errMsg)) + "\n\n");
+                    writer.write("event: agent_result\ndata: " + om.writeValueAsString(Map.of("sql","","error",errMsg)) + "\n\n");
+                    writer.flush();
+                } catch (Exception ex) {
+                    System.err.println("[Agent SSE write error] " + ex.getMessage());
+                }
+            }
+            } finally {
+            try { writer.close(); } catch (Exception ignored) {}
+        }
+    }
+
+    // ==================== SSE streaming endpoint (legacy) ====================
+
+    @PostMapping("/stream-chat")
+    public void streamChat(@RequestBody Map<String, Object> request, Authentication auth,
+                            HttpServletResponse response) throws Exception {
+        response.setContentType("text/event-stream");
+        response.setCharacterEncoding("UTF-8");
+        response.setHeader("Cache-Control", "no-cache");
+        response.setHeader("X-Accel-Buffering", "no");
+
+        String userId = auth != null ? auth.getName() : "anonymous";
+        Long connectionId = Long.valueOf(request.get("connectionId").toString());
+        String message = (String) request.get("message");
+        String tableName = (String) request.get("tableName");
+        String conversationId = (String) request.get("conversationId");
+
+        List<AiConversation> history = Collections.emptyList();
+        if (conversationId != null && !conversationId.isBlank()) {
+            history = convRepo.findByConversationId(conversationId);
+        }
+
+        PrintWriter writer = response.getWriter();
+        try {
+            aiService.streamChatWithAI(userId, connectionId, message, tableName, history, event -> {
+                try {
+                    writer.write(event);
+                    writer.flush();
+                } catch (Exception e) { throw new RuntimeException(e); }
+            });
+        } catch (Exception e) {
+            writer.write("event: error\ndata: {\"message\":\"" + e.getMessage().replace("\"", "\\\"") + "\"}\n\n");
+            writer.flush();
+        } finally {
+            writer.close();
+        }
+    }
+
+    @PostMapping("/chat")
+    public ResponseEntity<?> chat(@RequestBody Map<String, Object> request, Authentication auth) {
+        try {
+            String userId = auth != null ? auth.getName() : "anonymous";
+            Long connectionId = Long.valueOf(request.get("connectionId").toString());
+            String message = (String) request.get("message");
+            String tableName = (String) request.get("tableName");
+            String conversationId = (String) request.get("conversationId");
+
+            List<AiConversation> history = Collections.emptyList();
+            if (conversationId != null && !conversationId.isBlank()) {
+                history = convRepo.findByConversationId(conversationId);
+            }
+
+            // Generate SQL
+            String sql;
+            if (tableName != null && !tableName.isBlank()) {
+                String lmsg = message.toLowerCase();
+                if (lmsg.contains("insert") || lmsg.contains("插入") || lmsg.contains("添加") || lmsg.contains("新增") || lmsg.contains("写入")) {
+                    Map<String, Object> r = aiService.generateInsertSQL(userId, connectionId, tableName, message, history);
+                    sql = (String) r.get("sql");
+                } else if (lmsg.contains("update") || lmsg.contains("更新") || lmsg.contains("修改") || lmsg.contains("填充") || lmsg.contains("null") || lmsg.contains("设为") || lmsg.contains("改成")) {
+                    Map<String, Object> r = aiService.generateUpdateSQL(userId, connectionId, tableName, message, null, history);
+                    sql = (String) r.get("sql");
+                } else {
+                    sql = aiService.chatWithAI(userId, connectionId, "表: " + tableName + "\n" + message, history);
+                }
+            } else {
+                sql = aiService.chatWithAI(userId, connectionId, message, history);
+            }
+
+            // Self-validation
+            Map<String, Object> validation = null;
+            try {
+                validation = aiService.selfValidateSQL(userId, connectionId, sql, message, tableName);
+            } catch (Exception ignored) {}
+
+            return ResponseEntity.ok(Map.of("success", true, "sql", sql, "validation", validation != null ? validation : Map.of()));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of("success", false, "message", e.getMessage()));
+        }
     }
 
     @GetMapping("/config")
     public ResponseEntity<?> getConfig(Authentication auth) {
         try {
             String userId = auth != null ? auth.getName() : "anonymous";
-            return ResponseEntity.ok(Map.of("success", true, "config", aiConfigService.getConfig(userId)));
+            Object config = aiConfigService.getConfig(userId);
+            Map<String, Object> result = new HashMap<>();
+            result.put("success", true);
+            if (config == null) {
+                result.put("config", null);
+                result.put("needSetup", true);
+            } else {
+                result.put("config", config);
+            }
+            return ResponseEntity.ok(result);
         } catch (Exception e) {
-            return ResponseEntity.status(500).body(Map.of("success", false, "message", e.getMessage()));
+            Map<String, Object> err = new HashMap<>();
+            err.put("success", false);
+            err.put("message", e.getMessage() != null ? e.getMessage() : "Unknown error");
+            return ResponseEntity.status(500).body(err);
         }
     }
 
@@ -45,6 +203,27 @@ public class AiConfigController {
         try {
             String userId = auth != null ? auth.getName() : "anonymous";
             return ResponseEntity.ok(aiConfigService.testConnection(userId));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of("success", false, "message", e.getMessage()));
+        }
+    }
+
+    @GetMapping("/project-background")
+    public ResponseEntity<?> getProjectBackground(Authentication auth) {
+        try {
+            String userId = auth != null ? auth.getName() : "anonymous";
+            return ResponseEntity.ok(Map.of("success", true, "background", aiConfigService.getProjectBackground(userId)));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of("success", false, "message", e.getMessage()));
+        }
+    }
+
+    @PostMapping("/project-background")
+    public ResponseEntity<?> saveProjectBackground(@RequestBody Map<String, String> request, Authentication auth) {
+        try {
+            String userId = auth != null ? auth.getName() : "anonymous";
+            aiConfigService.saveProjectBackground(userId, request.getOrDefault("background", ""));
+            return ResponseEntity.ok(Map.of("success", true));
         } catch (Exception e) {
             return ResponseEntity.status(500).body(Map.of("success", false, "message", e.getMessage()));
         }
@@ -105,5 +284,91 @@ public class AiConfigController {
         } catch (Exception e) {
             return ResponseEntity.status(500).body(Map.of("success", false, "message", e.getMessage()));
         }
+    }
+
+    @PostMapping("/generate-update")
+    public ResponseEntity<?> generateUpdate(@RequestBody Map<String, Object> request, Authentication auth) {
+        try {
+            String userId = auth != null ? auth.getName() : "anonymous";
+            Long connectionId = Long.valueOf(request.get("connectionId").toString());
+            String tableName = (String) request.get("tableName");
+            String description = (String) request.get("description");
+            String whereCondition = (String) request.getOrDefault("whereCondition", null);
+            Map<String, Object> result = aiService.generateUpdateSQL(userId, connectionId, tableName, description, whereCondition);
+            return ResponseEntity.ok(Map.of("success", true, "sql", result.get("sql"),
+                "tableName", result.get("tableName"), "columns", result.get("columns")));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of("success", false, "message", e.getMessage()));
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    @PostMapping("/generate-update-row")
+    public ResponseEntity<?> generateUpdateRow(@RequestBody Map<String, Object> request, Authentication auth) {
+        try {
+            String userId = auth != null ? auth.getName() : "anonymous";
+            Long connectionId = Long.valueOf(request.get("connectionId").toString());
+            String tableName = (String) request.get("tableName");
+            Map<String, Object> currentRow = (Map<String, Object>) request.get("currentRow");
+            String pkColumn = (String) request.get("pkColumn");
+            Object pkValue = request.get("pkValue");
+            String userIntent = (String) request.get("userIntent");
+            Map<String, Object> result = aiService.generateUpdateRowSQL(userId, connectionId,
+                tableName, currentRow, pkColumn, pkValue, userIntent);
+            return ResponseEntity.ok(Map.of("success", true, "sql", result.get("sql"),
+                "setClause", result.get("setClause"), "tableName", result.get("tableName"),
+                "pkColumn", result.get("pkColumn"), "pkValue", result.get("pkValue"),
+                "columns", result.get("columns")));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of("success", false, "message", e.getMessage()));
+        }
+    }
+
+    // ==================== Format repair & generation SSE endpoints ====================
+
+    private String userId(Authentication auth) { return auth != null ? auth.getName() : "anonymous"; }
+
+    @PostMapping("/repair-format")
+    public void repairFormat(@RequestBody Map<String, Object> req, Authentication auth,
+                             HttpServletResponse resp) throws Exception {
+        resp.setContentType("text/event-stream");
+        resp.setCharacterEncoding("UTF-8");
+        resp.setHeader("Cache-Control", "no-cache");
+        resp.setHeader("X-Accel-Buffering", "no");
+        PrintWriter w = resp.getWriter();
+        String format = (String) req.get("format");
+        String content = (String) req.get("content");
+        try {
+            w.write("event: phase\ndata: {\"msg\":\"检测格式错误...\"}\n\n"); w.flush();
+            aiService.repairFormatStream(userId(auth), format, content, chunk -> { w.write(chunk); w.flush(); });
+            w.write("event: done\ndata: {}\n\n"); w.flush();
+        } catch (Exception e) {
+            String msg = e.getMessage() != null ? e.getMessage() : "Unknown";
+            if (msg.length() > 500) msg = msg.substring(0, 500) + "...";
+            w.write("event: error\ndata: " + om.writeValueAsString(Map.of("message", msg)) + "\n\n");
+            w.flush();
+        } finally { w.close(); }
+    }
+
+    @PostMapping("/generate-format")
+    public void generateFormat(@RequestBody Map<String, Object> req, Authentication auth,
+                                HttpServletResponse resp) throws Exception {
+        resp.setContentType("text/event-stream");
+        resp.setCharacterEncoding("UTF-8");
+        resp.setHeader("Cache-Control", "no-cache");
+        resp.setHeader("X-Accel-Buffering", "no");
+        PrintWriter w = resp.getWriter();
+        String format = (String) req.get("format");
+        String description = (String) req.get("description");
+        try {
+            w.write("event: phase\ndata: {\"msg\":\"生成 "+format.toUpperCase()+" ...\"}\n\n"); w.flush();
+            aiService.generateFormatStream(userId(auth), format, description, chunk -> { w.write(chunk); w.flush(); });
+            w.write("event: done\ndata: {}\n\n"); w.flush();
+        } catch (Exception e) {
+            String msg = e.getMessage() != null ? e.getMessage() : "Unknown";
+            if (msg.length() > 500) msg = msg.substring(0, 500) + "...";
+            w.write("event: error\ndata: " + om.writeValueAsString(Map.of("message", msg)) + "\n\n");
+            w.flush();
+        } finally { w.close(); }
     }
 }
