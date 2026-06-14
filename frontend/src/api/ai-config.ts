@@ -243,5 +243,48 @@ export const aiConfigAPI = {
       onComplete()
     }).catch(onError)
     return controller
+  },
+
+  // Optimize SQL based on EXPLAIN plan (SSE stream)
+  optimizeSQL: (
+    connectionId: number,
+    sqlText: string,
+    explainPlan: string,
+    dbType: string,
+    onEvent: (event: { type: string; data: any }) => void,
+    onComplete: () => void,
+    onError: (err: any) => void
+  ) => {
+    const controller = new AbortController()
+    fetch('/api/ai/optimize-sql', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ connectionId, sqlText, explainPlan, dbType }),
+      signal: controller.signal
+    }).then(async resp => {
+      const reader = resp.body?.getReader()
+      if (!reader) return
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let eventType = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            eventType = line.slice(7).trim()
+          }
+          else if (line.startsWith('data: ') && eventType) {
+            try { onEvent({ type: eventType, data: JSON.parse(line.slice(6)) }) } catch {}
+            eventType = ''
+          }
+        }
+      }
+      onComplete()
+    }).catch(onError)
+    return controller
   }
 }

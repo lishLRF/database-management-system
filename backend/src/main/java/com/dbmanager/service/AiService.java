@@ -707,4 +707,13 @@ public class AiService {
     public Map<String, Object> generateUpdateSQL(String userId, Long cid, String tn, String desc, String wc) throws Exception {
         return generateUpdateSQL(userId, cid, tn, desc, wc, List.of());
     }
+
+    //  OPTIMIZE SQL (from EXPLAIN plan)
+    public boolean detectOptimizeIntent(String userPrompt) {
+        String s = userPrompt.toLowerCase();
+        return s.contains("优化") || s.contains("慢") || s.contains("快")
+            || s.contains("索引") || s.contains("执行计划") || s.contains("explain")
+            || s.contains("performance") || s.contains("slow") || s.contains("optimize")
+            || s.contains("加速") || s.contains("提升性能") || s.contains("改进");
+    }
 }

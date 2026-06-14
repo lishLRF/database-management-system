@@ -7,9 +7,10 @@ spring:
     url: jdbc:sqlite:./data/metadata.db
     driver-class-name: org.sqlite.JDBC
     hikari:
-      maximum-pool-size: 5
+      maximum-pool-size: 20
       connection-timeout: 30000
       idle-timeout: 600000
+      max-lifetime: 1800000
 
   # 安全配置
   security:
@@ -25,6 +26,7 @@ spring:
       max-request-size: 10MB
 
 server:
+  address: 0.0.0.0
   port: 8081
   servlet:
     context-path: /
@@ -33,7 +35,7 @@ server:
 app:
   # 认证配置
   auth:
-    debug-mode: false
+    debug-mode: true  # true=按IP隔离(测试多用户), false=按JWT token中的userId(生产)
     jwt-secret: ${JWT_SECRET:your-secret-key-change-in-production}
     jwt-expiration: 86400000 # 24小时
 
@@ -45,6 +47,9 @@ app:
   datasource:
     max-connections-per-user: 10
     idle-timeout-minutes: 30
+    metadata-pool-max: 20
+    user-pool-max: 10
+    user-pool-min-idle: 2
 
 # 日志配置
 logging:

@@ -371,4 +371,68 @@ public class AiConfigController {
             w.flush();
         } finally { w.close(); }
     }
+
+    /** Optimize SQL based on EXPLAIN plan (SSE stream) */
+    @PostMapping("/optimize-sql")
+    public void optimizeSQL(@RequestBody Map<String, Object> req, Authentication auth, HttpServletResponse resp) throws Exception {
+        resp.setContentType("text/event-stream");
+        resp.setCharacterEncoding("UTF-8");
+        resp.setHeader("Cache-Control", "no-cache");
+        resp.setHeader("X-Accel-Buffering", "no");
+        PrintWriter w = resp.getWriter();
+
+        String sqlText = (String) req.get("sqlText");
+        String explainPlan = (String) req.get("explainPlan");
+        String dbType = (String) req.get("dbType");
+        Long connectionId = ((Number) req.get("connectionId")).longValue();
+
+        try {
+            w.write("event: phase\ndata: {\"msg\":\"🤖 分析执行计划...\"}\n\n"); w.flush();
+
+            // Build optimize prompt with plan embedded
+            String userPrompt = String.format("""
+                请分析这个SQL的执行计划，并给出优化建议。
+
+                ## 原始SQL
+                %s
+
+                ## 执行计划
+                %s
+
+                ## 数据库类型
+                %s
+
+                要求：
+                1. 指出性能瓶颈（Seq Scan、高cost、missing index）
+                2. 生成优化SQL（CREATE INDEX 或改写查询）
+                3. 用 [SQL:...] 格式输出最终SQL
+                """, sqlText, explainPlan, dbType);
+
+            w.write("event: agent_start\ndata: {\"msg\":\"Agent 开始分析...\"}\n\n"); w.flush();
+
+            // Run agent (blocks until done)
+            String result = agentService.runAgent(
+                userId(auth),
+                connectionId,
+                userPrompt,
+                null,  // tableName
+                null,  // conversationId
+                "query",  // operationType
+                "optimize",  // intentType (new)
+                event -> {
+                    try {
+                        w.write("event: agent_progress\ndata: " + om.writeValueAsString(event) + "\n\n");
+                        w.flush();
+                    } catch (Exception ignored) {}
+                });
+
+            w.write("event: result\ndata: " + om.writeValueAsString(Map.of("sql", result)) + "\n\n"); w.flush();
+            w.write("event: done\ndata: {}\n\n"); w.flush();
+        } catch (Exception e) {
+            String msg = e.getMessage() != null ? e.getMessage() : "Unknown";
+            if (msg.length() > 500) msg = msg.substring(0, 500) + "...";
+            w.write("event: error\ndata: " + om.writeValueAsString(Map.of("message", msg)) + "\n\n");
+            w.flush();
+        } finally { w.close(); }
+    }
 }

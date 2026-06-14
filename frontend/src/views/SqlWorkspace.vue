@@ -103,7 +103,10 @@
                   <div v-if="!explainPlanResult && !explainPlanLoading && !explainPlanError" class="explain-empty">点击 📊 执行计划 分析当前SQL</div>
                 </template>
               </div>
-              <div class="explain-actions" v-if="explainTab === 'ai' && outputEffect"><el-button link size="small" @click="addChatMsg('ai', '💡 ' + outputEffect + '\n\n🔧 ' + codeStructure)">→ 发送到对话</el-button></div>
+              <div class="explain-actions">
+                <el-button v-if="explainTab === 'ai' && outputEffect" link size="small" @click="addChatMsg('ai', '💡 ' + outputEffect + '\n\n🔧 ' + codeStructure)">→ 发送到对话</el-button>
+                <el-button v-if="explainTab === 'plan' && explainPlanResult" type="primary" size="small" @click="handleOptimizeSQL" :loading="optimizing">🤖 优化代码</el-button>
+              </div>
             </div>
           </transition>
         </div>
@@ -489,6 +492,7 @@ const explainPlanJson = ref('')
 const explainPlanRows = ref<Record<string,any>[]>([])
 const explainPlanCols = ref<string[]>([])
 const explainPlanError = ref('')
+const optimizing = ref(false)
 
 // ── Fill preview state ──
 const fillSubMode = ref<'insert' | 'edit'>('insert')
@@ -752,6 +756,38 @@ async function handleExplainPlan() {
   } catch (e: any) {
     explainPlanError.value = e.response?.data?.error || e.message || '执行计划获取失败'
   } finally { explainPlanLoading.value = false }
+}
+
+// ── Optimize SQL based on EXPLAIN ──
+async function handleOptimizeSQL() {
+  if (!store.activeConnection || !explainPlanResult.value) { ElMessage.warning('请先执行 EXPLAIN'); return }
+  optimizing.value = true
+  thinkingBlock.visible = true
+  thinkingBlock.progress = '🤖 Agent 分析执行计划...'
+  thinkingBlock.segments = []
+
+  const planStr = explainPlanJson.value || JSON.stringify(explainPlanResult.value)
+
+  aiConfigAPI.optimizeSQL(
+    store.activeConnection.id,
+    sqlContent.value.trim(),
+    planStr,
+    store.activeConnection.dbType,
+    (event) => {
+      handleAgentEvent(event.type, event.data)
+    },
+    () => {
+      optimizing.value = false
+      thinkingBlock.visible = false
+      addChatMsg('ai', '✅ 优化分析完成')
+    },
+    (err) => {
+      optimizing.value = false
+      thinkingBlock.visible = false
+      addChatMsg('error', '优化失败: ' + (err.message || '未知错误'))
+      ElMessage.error('优化失败')
+    }
+  )
 }
 
 // ── Agent Event Handler (shared) ──
@@ -1584,5 +1620,107 @@ watch(() => store.activeConnection, (newConn) => {
 }
 :global(.history-inner-select) {
   z-index: 2100 !important;
+}
+
+/* ── Mobile Responsive ── */
+@media (max-width: 768px) {
+  .workspace {
+    flex-direction: column !important;
+  }
+  .left-panel {
+    padding: 6px;
+    gap: 4px;
+  }
+  .toolbar {
+    gap: 3px;
+    font-size: 11px;
+  }
+  .toolbar .el-button {
+    font-size: 10px;
+    padding: 4px 8px;
+  }
+  .mode-switch .el-button {
+    font-size: 10px;
+    padding: 4px 6px;
+  }
+  .tab-bar {
+    min-height: 28px;
+    padding: 0 2px;
+  }
+  .tab-item {
+    font-size: 10px;
+    padding: 2px 6px;
+  }
+  .tab-title {
+    max-width: 70px;
+  }
+  .editor-row {
+    flex-direction: column;
+    min-height: 200px;
+  }
+  .editor-area {
+    min-height: 180px;
+  }
+  .explain-panel {
+    width: 100% !important;
+    min-width: 0;
+    margin-left: 0;
+    margin-top: 4px;
+    border-left: none;
+    border-top: 1px solid #e4e7ed;
+    max-height: 250px;
+  }
+  .result-area {
+    min-height: 100px;
+  }
+
+  /* Right panel: overlay on mobile */
+  .right-panel {
+    position: fixed;
+    top: 48px;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    max-width: 360px;
+    z-index: 100;
+    transform: translateX(100%);
+    transition: transform 0.25s ease;
+    box-shadow: -2px 0 8px rgba(0,0,0,0.1);
+  }
+  .right-panel.mobile-open {
+    transform: translateX(0);
+  }
+
+  /* Fill mode */
+  .fill-area {
+    font-size: 12px;
+  }
+  .mode-hint {
+    font-size: 10px;
+  }
+}
+
+/* Tablet */
+@media (min-width: 769px) and (max-width: 1024px) {
+  .workspace {
+    flex-direction: column;
+  }
+  .left-panel {
+    padding: 8px;
+    gap: 6px;
+  }
+  .editor-row {
+    min-height: 220px;
+  }
+  .right-panel {
+    width: 100%;
+    max-height: 280px;
+    border-left: none;
+    border-top: 1px solid #e4e7ed;
+  }
+  .explain-panel {
+    width: 240px;
+    min-width: 180px;
+  }
 }
 </style>

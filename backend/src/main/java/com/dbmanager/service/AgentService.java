@@ -497,6 +497,9 @@ public class AgentService {
             case "delete":
                 extra.append("DELETE mode. MANDATORY: plan TWO tasks — (1) explore task type='explore', (2) delete task type='delete' depends on explore.\n");
                 break;
+            case "optimize":
+                extra.append("OPTIMIZE mode. User provided EXPLAIN plan in their message. Plan 1 task: analyze plan, identify bottlenecks (Seq Scan/high cost/missing index), output CREATE INDEX or rewrite SQL. Task type='optimize'.\n");
+                break;
             case "modify":
                 extra.append("Modify/fix mode. Plan explore FIRST to understand current state, then modify.\n");
                 break;
@@ -552,6 +555,10 @@ public class AgentService {
                 break;
             case "modify":
                 intentRule = "MODIFY mode. Understand existing SQL issue. Explore data. Fix core problem without changing intent.";
+                break;
+            case "optimize":
+                skipExplore = true;
+                intentRule = "OPTIMIZE mode. User provided EXPLAIN plan. Analyze bottlenecks (Seq Scan, high cost, missing index). Generate CREATE INDEX or rewrite SQL. Output [SQL:...] with optimization statements.";
                 break;
             default:
                 intentRule = "General mode. Explore if write, skip if query.";
